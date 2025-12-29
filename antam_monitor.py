@@ -1,5 +1,9 @@
+import requests
+import json
+import os
+import time
+import csv
 
-import requests, json, os, time, csv
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -14,11 +18,8 @@ GRAM_LIST = ["0.5 gr", "1 gr", "2 gr", "3 gr", "5 gr", "10 gr"]
 
 MODE = "PRODUKSI"          # VALIDASI | PRODUKSI
 INTERVAL = 60              # detik
-HEADLESS = False
+HEADLESS = True
 RETRY_LOAD = 3
-
-# Chrome profile utama (cache & session awet)
-USER_DATA_DIR = "C:/antam-profile"
 
 STATE_FILE = "last_status.json"
 CSV_LOG = "stock_log.csv"
@@ -66,7 +67,7 @@ def send_telegram(msg, photo=None):
         print("Telegram error:", e)
 
 # =====================
-# STATE (AMAN JSON)
+# STATE (JSON)
 # =====================
 def load_state():
     try:
@@ -82,7 +83,7 @@ def save_state(state):
         json.dump(state, f, indent=2)
 
 # =====================
-# CSV LOG (AMAN)
+# CSV LOG
 # =====================
 def log_csv(ts, gram, habis):
     file_exists = os.path.exists(CSV_LOG)
@@ -117,18 +118,18 @@ def safe_load_page(page):
 
             return True
         except:
-            print(f"⚠️ Retry load {i+1}/{RETRY_LOAD}")
+            print(f"⚠️ Retry load {i + 1}/{RETRY_LOAD}")
             time.sleep(5)
+
     return False
 
 # =====================
-# PARSE STOCK (PER PRODUK)
+# PARSE STOCK
 # =====================
 def check_stock(html):
     soup = BeautifulSoup(html, "html.parser")
     page_text = soup.get_text(" ").lower().replace(" ", "")
 
-    # Jika halaman masih benar-benar kosong
     if len(page_text) < 200:
         return "LOADING"
 
@@ -138,11 +139,9 @@ def check_stock(html):
         gram_key = gram.replace(" ", "").lower()
 
         if gram_key not in page_text:
-            # produk belum muncul sama sekali
             result[gram] = True
             continue
 
-        # cek BELUM TERSEDIA dekat produk
         if "belumtersedia" in page_text:
             result[gram] = True
         else:
@@ -151,25 +150,22 @@ def check_stock(html):
     return result
 
 # =====================
-# MAIN LOOP
+# MAIN
 # =====================
 def main():
     last = load_state()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
-    headless=True,
-    args=[
-        "--no-sandbox",
-        "--disable-dev-shm-usage"
-    ]
-)
+            headless=HEADLESS,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage"
+            ]
+        )
 
-context = browser.new_context()
-page = context.new_page()
-
-
-        page = context.pages[0] if context.pages else context.new_page()
+        context = browser.new_context()
+        page = context.new_page()
 
         send_telegram(
             f"🟢 <b>ANTAM MONITOR STARTED</b>\n"
@@ -199,39 +195,27 @@ page = context.new_page()
                 current = check_stock(html)
 
                 if current == "LOADING":
-                    print("⏳ Halaman belum siap, skip")
+                    print("⏳ Halaman belum siap")
                     time.sleep(INTERVAL)
                     continue
 
                 for gram, habis in current.items():
                     last_status = last.get(gram)
 
-                    # LOG CSV SELALU
                     log_csv(now, gram, habis)
 
-                    # =====================
-                    # MODE VALIDASI
-                    # =====================
-                    if MODE == "VALIDASI":
-                        if habis:
-                            send_telegram(
-                                f"🧪 <b>VALIDASI SCRAPER</b>\n"
-                                f"{gram}\n"
-                                f"<b>BELUM TERSEDIA</b> TERDETEKSI\n"
-                                f"{now}",
-                                screenshot
-                            )
+                    if MODE == "VALIDASI" and habis:
+                        send_telegram(
+                            f"🧪 <b>VALIDASI SCRAPER</b>\n"
+                            f"{gram}\nBELUM TERSEDIA\n{now}",
+                            screenshot
+                        )
 
-                    # =====================
-                    # MODE PRODUKSI
-                    # =====================
                     elif MODE == "PRODUKSI":
-                        if not habis and last_status != False:
+                        if not habis and last_status is not False:
                             send_telegram(
                                 f"🟢 <b>STOK ANTAM TERSEDIA</b>\n"
-                                f"{gram}\n"
-                                f"Pulo Gadung\n"
-                                f"{now}",
+                                f"{gram}\nPulo Gadung\n{now}",
                                 screenshot
                             )
 
@@ -246,6 +230,7 @@ page = context.new_page()
                     page.screenshot(path=fatal, full_page=True)
                 except:
                     pass
+
                 send_telegram(
                     f"❌ <b>FATAL ERROR</b>\n{str(e)}",
                     fatal
@@ -258,6 +243,3 @@ page = context.new_page()
 # =====================
 if __name__ == "__main__":
     main()
-
-
-
