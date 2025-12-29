@@ -4,24 +4,20 @@ import json
 import os
 import csv
 import pandas as pd
-
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
-from zoneinfo import ZoneInfo  # Python 3.9+
-
 import atexit
+from zoneinfo import ZoneInfo  # Python 3.9+
 
 # =====================
 # CONFIG
 # =====================
 URL = "https://www.logammulia.com/id/purchase/gold"
 GRAM_LIST = ["0.5 gr", "1 gr", "2 gr", "3 gr", "5 gr", "10 gr"]
-
-MODE = "PRODUKSI"   # VALIDASI | PRODUKSI
-AUTO_REFRESH_MIN = 1   # ⏱️ AUTO REFRESH (MENIT)
-
+MODE = "VALIDASI"  # VALIDASI | PRODUKSI
+AUTO_REFRESH_MIN = 1  # menit
 STATE_FILE = "last_status.json"
 CSV_LOG = "stock_log.csv"
 
@@ -57,12 +53,12 @@ def send_telegram(msg):
         st.error(f"Telegram error: {e}")
 
 # =====================
-# NOTIF END APP
+# STOP NOTIF
 # =====================
 def notify_app_end():
     send_telegram(
         "🔴 <b>ANTAM MONITOR STOPPED</b>\n"
-        f"{datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y-%m-%d %H:%M:%S")}"
+        f"{datetime.now(ZoneInfo('Asia/Jakarta')).strftime('%Y-%m-%d %H:%M:%S')}"
     )
 atexit.register(notify_app_end)
 
@@ -120,38 +116,38 @@ st.title("🟡 ANTAM Gold Stock Monitor")
 st.caption(f"⏱️ Auto refresh tiap {AUTO_REFRESH_MIN} menit")
 
 # =====================
-# START NOTIF (ANTI-SPAM)
+# START / WAKE NOTIF
 # =====================
+now_jakarta = datetime.now(ZoneInfo("Asia/Jakarta"))
 if "app_started" not in st.session_state:
     st.session_state.app_started = True
     st.session_state.notif_sent_start = False
-    st.session_state.last_ping = datetime.now()
+    st.session_state.last_ping = now_jakarta
 
-# START notif hanya sekali
+# START notif hanya sekali per session
 if not st.session_state.notif_sent_start:
     send_telegram(
         "🟢 <b>ANTAM MONITOR STARTED</b>\n"
         f"MODE: <b>{MODE}</b>\n"
-        f"{datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y-%m-%d %H:%M:%S")}"
+        f"{now_jakarta.strftime('%Y-%m-%d %H:%M:%S')}"
     )
     st.session_state.notif_sent_start = True
 
-# DETEKSI WAKEUP > 30 menit
-delta = (datetime.now() - st.session_state.last_ping).seconds
+# WAKE notif jika bangun dari sleep >30 menit
+delta = (now_jakarta - st.session_state.last_ping).seconds
 if delta > 1800:
     send_telegram(
         "⚡ <b>ANTAM MONITOR WAKE UP</b>\n"
-        f"{datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y-%m-%d %H:%M:%S")}"
+        f"{now_jakarta.strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
-st.session_state.last_ping = datetime.now()
+st.session_state.last_ping = now_jakarta
 
 # =====================
 # MAIN CHECK
 # =====================
 last = load_state()
-now = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y-%m-%d %H:%M:%S")
-
+now = now_jakarta.strftime("%Y-%m-%d %H:%M:%S")
 
 try:
     current = check_stock()
@@ -190,25 +186,11 @@ if notif_sent:
     st.success("🔔 Notifikasi Telegram dikirim")
 
 # =====================
-# GRAFIK CSV (ANTI-CRASH)
+# GRAFIK CSV
 # =====================
 if os.path.exists(CSV_LOG):
     st.subheader("📊 Riwayat Ketersediaan (1 = HABIS)")
     df = pd.read_csv(CSV_LOG)
-
-    st.caption(f"Kolom CSV terdeteksi: {list(df.columns)}")
-
-    if "status" not in df.columns:
-        if "status_num" in df.columns:
-            df["status"] = df["status_num"]
-        else:
-            st.warning("CSV tidak punya kolom status/status_num")
-            st.stop()
-
-    if "timestamp" not in df.columns or "gram" not in df.columns:
-        st.warning("CSV tidak sesuai format grafik")
-        st.stop()
-
     df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
     df = df.dropna(subset=["timestamp"])
     if not df.empty:
@@ -221,10 +203,7 @@ if os.path.exists(CSV_LOG):
         st.line_chart(pivot)
 
 # =====================
-# MANUAL BUTTON
+# MANUAL REFRESH BUTTON
 # =====================
 if st.button("🔄 Refresh Manual"):
     st.experimental_rerun()
-
-
-
