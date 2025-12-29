@@ -157,21 +157,26 @@ for gram, habis in current.items():
     last_status = last.get(gram)
     log_csv(now, gram, habis)
 
-    # Simpan screenshot HTML tiap cek
-    screenshot_path = os.path.join(SCREENSHOT_DIR, f"{MODE}_{gram}_{now.replace(':','_')}.html")
-    with open(screenshot_path, "w", encoding="utf-8") as f:
-        f.write(html_content)
-
-    # PRODUKSI → notif hanya jika stok tersedia baru
     if MODE == "PRODUKSI":
+        # Kirim notif hanya jika stok tersedia baru
         if not habis and last_status is not False:
-            send_telegram(f"🟢 <b>STOK ANTAM TERSEDIA</b>\n{gram}\n{now}", photo=screenshot_path)
+            send_telegram(
+                f"🟢 <b>STOK ANTAM TERSEDIA</b>\n"
+                f"{gram}\n"
+                f"{now}"
+            )
             notif_sent = True
 
-    # VALIDASI → kirim notif selalu (sanity test)
     elif MODE == "VALIDASI":
-        send_telegram(f"🧪 <b>VALIDASI SCRAPER</b>\n{gram}\n{'HABIS' if habis else 'TERSEDIA'}\n{now}", photo=screenshot_path)
+        # Kirim notif untuk tiap gram, tanpa cek status sebelumnya
+        send_telegram(
+            f"🧪 <b>VALIDASI SCRAPER</b>\n"
+            f"{gram}\n"
+            f"{'HABIS' if habis else 'TERSEDIA'}\n"
+            f"{now}"
+        )
         notif_sent = True
+
 
 save_state(current)
 
@@ -202,3 +207,4 @@ if os.path.exists(CSV_LOG):
 # =====================
 if st.button("🔄 Refresh Manual"):
     st.experimental_rerun()
+
