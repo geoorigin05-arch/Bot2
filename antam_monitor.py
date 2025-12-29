@@ -122,21 +122,27 @@ st.caption(f"⏱️ Auto refresh tiap {AUTO_REFRESH_MIN} menit")
 # =====================
 if "app_started" not in st.session_state:
     st.session_state.app_started = True
+    st.session_state.notif_sent_start = False
+    st.session_state.last_ping = datetime.now()
+
+# START notif hanya sekali
+if not st.session_state.notif_sent_start:
     send_telegram(
         "🟢 <b>ANTAM MONITOR STARTED</b>\n"
         f"MODE: <b>{MODE}</b>\n"
         f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
-    st.session_state.last_ping = datetime.now()
-else:
-    # DETEKSI BANGUN DARI SLEEP > 30 MENIT
-    delta = (datetime.now() - st.session_state.last_ping).seconds
-    if delta > 1800:
-        send_telegram(
-            "⚡ <b>ANTAM MONITOR WAKE UP</b>\n"
-            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        )
-    st.session_state.last_ping = datetime.now()
+    st.session_state.notif_sent_start = True
+
+# DETEKSI WAKEUP > 30 menit
+delta = (datetime.now() - st.session_state.last_ping).seconds
+if delta > 1800:
+    send_telegram(
+        "⚡ <b>ANTAM MONITOR WAKE UP</b>\n"
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+
+st.session_state.last_ping = datetime.now()
 
 # =====================
 # MAIN CHECK
@@ -216,3 +222,4 @@ if os.path.exists(CSV_LOG):
 # =====================
 if st.button("🔄 Refresh Manual"):
     st.experimental_rerun()
+
