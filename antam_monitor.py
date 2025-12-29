@@ -16,10 +16,12 @@ from zoneinfo import ZoneInfo  # Python 3.9+
 # =====================
 URL = "https://www.logammulia.com/id/purchase/gold"
 GRAM_LIST = ["0.5 gr", "1 gr", "2 gr", "3 gr", "5 gr", "10 gr"]
-MODE = "PRODUKSI"  # VALIDASI | PRODUKSI
+MODE = "VALIDASI"  # VALIDASI | PRODUKSI
 AUTO_REFRESH_MIN = 1  # menit
 STATE_FILE = "last_status.json"
 CSV_LOG = "stock_log.csv"
+SCREENSHOT_DIR = "screenshots"
+os.makedirs(SCREENSHOT_DIR, exist_ok=True)
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; AntamMonitor/1.0)"
@@ -35,20 +37,26 @@ CHAT_ID = os.getenv("CHAT_ID")
 # =====================
 # TELEGRAM
 # =====================
-def send_telegram(msg):
+def send_telegram(msg, photo=None):
     if not BOT_TOKEN or not CHAT_ID:
         return
     try:
-        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        requests.post(
-            url,
-            data={
-                "chat_id": CHAT_ID,
-                "text": msg,
-                "parse_mode": "HTML"
-            },
-            timeout=15
-        )
+        if photo and os.path.exists(photo):
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
+            with open(photo, "rb") as f:
+                requests.post(
+                    url,
+                    data={"chat_id": CHAT_ID, "caption": msg, "parse_mode": "HTML"},
+                    files={"photo": f},
+                    timeout=20
+                )
+        else:
+            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+            requests.post(
+                url,
+                data={"chat_id": CHAT_ID, "text": msg, "parse_mode": "HTML"},
+                timeout=15
+            )
     except Exception as e:
         st.error(f"Telegram error: {e}")
 
@@ -93,7 +101,6 @@ def check_stock():
     r = requests.get(URL, headers=HEADERS, timeout=30)
     soup = BeautifulSoup(r.text, "html.parser")
     text = soup.get_text(" ").lower().replace(" ", "")
-
     result = {}
     for gram in GRAM_LIST:
         key = gram.replace(" ", "").lower()
@@ -101,7 +108,7 @@ def check_stock():
             result[gram] = True
         else:
             result[gram] = False
-    return result
+    return result, r.text  # HTML juga dikembalikan untuk screenshot
 
 # =====================
 # AUTO REFRESH
@@ -124,7 +131,6 @@ if "app_started" not in st.session_state:
     st.session_state.notif_sent_start = False
     st.session_state.last_ping = now_jakarta
 
-# START notif hanya sekali per session
 if not st.session_state.notif_sent_start:
     send_telegram(
         "🟢 <b>ANTAM MONITOR STARTED</b>\n"
@@ -133,14 +139,12 @@ if not st.session_state.notif_sent_start:
     )
     st.session_state.notif_sent_start = True
 
-# WAKE notif jika bangun dari sleep >30 menit
 delta = (now_jakarta - st.session_state.last_ping).seconds
 if delta > 1800:
     send_telegram(
         "⚡ <b>ANTAM MONITOR WAKE UP</b>\n"
         f"{now_jakarta.strftime('%Y-%m-%d %H:%M:%S')}"
     )
-
 st.session_state.last_ping = now_jakarta
 
 # =====================
@@ -150,7 +154,7 @@ last = load_state()
 now = now_jakarta.strftime("%Y-%m-%d %H:%M:%S")
 
 try:
-    current = check_stock()
+    current, html_content = check_stock()
 except Exception as e:
     st.error(f"Gagal ambil data: {e}")
     st.stop()
@@ -160,26 +164,35 @@ for gram, habis in current.items():
     last_status = last.get(gram)
     log_csv(now, gram, habis)
 
+    screenshot_path = os.path.join(
+        SCREENSHOT_DIR, 
+        f"{MODE}_{gram}_{now.replace(':','_')}.html"
+    )
+    with open(screenshot_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+
+    # PRODUKSI → notif hanya jika stok tersedia baru
     if MODE == "PRODUKSI":
-        # Kirim notif hanya jika stok tersedia baru
         if not habis and last_status is not False:
             send_telegram(
-                f"🟢 <b>STOK ANTAM TERSEDIA</b>\n"
-                f"{gram}\n"
-                f"{now}"
+                f"🟢 <b>STOK ANTAM TERSEDIA</b>\n{gram}\n{now}",
+                photo=screenshot_path
             )
             notif_sent = True
 
+    # VALIDASI → kirim notif selalu, untuk sanity testing
     elif MODE == "VALIDASI":
-        # Kirim notif untuk tiap gram, tanpa cek status sebelumnya
         send_telegram(
-            f"🧪 <b>VALIDASI SCRAPER</b>\n"
-            f"{gram}\n"
-            f"{'HABIS' if habis else 'TERSEDIA'}\n"
-            f"{now}"
+            f"🧪 <b>VALIDASI SCRAPER</b>\n{gram}\n{'HABIS' if habis else 'TERSEDIA'}\n{now}",
+            photo=screenshot_path
         )
         notif_sent = True
 
+    # VALIDASI → ambil screenshot tiap cek, untuk testing scraper, tapi tidak notif stok
+    elif MODE == "VALIDASI":
+        screenshot_path = os.path.join(SCREENSHOT_DIR, f"VALIDASI_{gram}_{now.replace(':','_')}.html")
+        with open(screenshot_path, "w", encoding="utf-8") as f:
+            f.write(html_content)
 
 save_state(current)
 
@@ -218,5 +231,3 @@ if os.path.exists(CSV_LOG):
 # =====================
 if st.button("🔄 Refresh Manual"):
     st.experimental_rerun()
-
-
