@@ -1,3 +1,6 @@
+py -m pip install playwright
+
+
 import requests, json, os, time, csv
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
@@ -255,3 +258,4 @@ def main():
 # =====================
 if __name__ == "__main__":
     main()
+
