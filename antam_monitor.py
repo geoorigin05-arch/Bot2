@@ -157,15 +157,17 @@ def main():
     last = load_state()
 
     with sync_playwright() as p:
-        context = p.chromium.launch_persistent_context(
-            USER_DATA_DIR,
-            headless=HEADLESS,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage"
-            ]
-        )
+        browser = p.chromium.launch(
+    headless=True,
+    args=[
+        "--no-sandbox",
+        "--disable-dev-shm-usage"
+    ]
+)
+
+context = browser.new_context()
+page = context.new_page()
+
 
         page = context.pages[0] if context.pages else context.new_page()
 
@@ -256,5 +258,6 @@ def main():
 # =====================
 if __name__ == "__main__":
     main()
+
 
 
