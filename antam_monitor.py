@@ -1,10 +1,9 @@
 import requests
 import json
 import os
-import time
 import csv
+import time
 
-from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from datetime import datetime
@@ -13,19 +12,17 @@ from datetime import datetime
 # CONFIG
 # =====================
 URL = "https://www.logammulia.com/id/purchase/gold"
-
 GRAM_LIST = ["0.5 gr", "1 gr", "2 gr", "3 gr", "5 gr", "10 gr"]
 
-MODE = "PRODUKSI"          # VALIDASI | PRODUKSI
-INTERVAL = 60              # detik
-HEADLESS = True
-RETRY_LOAD = 3
+MODE = "PRODUKSI"   # VALIDASI | PRODUKSI
+INTERVAL = 60
 
 STATE_FILE = "last_status.json"
 CSV_LOG = "stock_log.csv"
-SCREENSHOT_DIR = "screenshots"
 
-os.makedirs(SCREENSHOT_DIR, exist_ok=True)
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; AntamMonitor/1.0)"
+}
 
 # =====================
 # LOAD ENV
@@ -37,112 +34,60 @@ CHAT_ID = os.getenv("CHAT_ID")
 # =====================
 # TELEGRAM
 # =====================
-def send_telegram(msg, photo=None):
+def send_telegram(msg):
     try:
-        if photo and os.path.exists(photo):
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-            with open(photo, "rb") as f:
-                requests.post(
-                    url,
-                    data={
-                        "chat_id": CHAT_ID,
-                        "caption": msg,
-                        "parse_mode": "HTML"
-                    },
-                    files={"photo": f},
-                    timeout=20
-                )
-        else:
-            url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-            requests.post(
-                url,
-                data={
-                    "chat_id": CHAT_ID,
-                    "text": msg,
-                    "parse_mode": "HTML"
-                },
-                timeout=15
-            )
+        url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+        requests.post(
+            url,
+            data={
+                "chat_id": CHAT_ID,
+                "text": msg,
+                "parse_mode": "HTML"
+            },
+            timeout=15
+        )
     except Exception as e:
         print("Telegram error:", e)
 
 # =====================
-# STATE (JSON)
+# STATE
 # =====================
 def load_state():
-    try:
-        if os.path.exists(STATE_FILE) and os.path.getsize(STATE_FILE) > 0:
-            with open(STATE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except:
-        pass
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as f:
+            return json.load(f)
     return {}
 
 def save_state(state):
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
+    with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
 
 # =====================
 # CSV LOG
 # =====================
 def log_csv(ts, gram, habis):
-    file_exists = os.path.exists(CSV_LOG)
+    exists = os.path.exists(CSV_LOG)
     with open(CSV_LOG, "a", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        if not file_exists:
-            writer.writerow([
-                "timestamp",
-                "gram",
-                "status_text",
-                "status_num"
-            ])
-        writer.writerow([
-            ts,
-            gram,
-            "BELUM TERSEDIA" if habis else "TERSEDIA",
-            1 if habis else 0
-        ])
+        w = csv.writer(f)
+        if not exists:
+            w.writerow(["timestamp", "gram", "status"])
+        w.writerow([ts, gram, "HABIS" if habis else "TERSEDIA"])
 
 # =====================
-# SAFE LOAD PAGE
+# CHECK STOCK
 # =====================
-def safe_load_page(page):
-    for i in range(RETRY_LOAD):
-        try:
-            page.goto(URL, timeout=60000, wait_until="domcontentloaded")
+def check_stock():
+    r = requests.get(URL, headers=HEADERS, timeout=30)
+    soup = BeautifulSoup(r.text, "html.parser")
 
-            try:
-                page.wait_for_selector("div.product-item", timeout=15000)
-            except:
-                page.wait_for_selector("text=Belum tersedia", timeout=15000)
-
-            return True
-        except:
-            print(f"⚠️ Retry load {i + 1}/{RETRY_LOAD}")
-            time.sleep(5)
-
-    return False
-
-# =====================
-# PARSE STOCK
-# =====================
-def check_stock(html):
-    soup = BeautifulSoup(html, "html.parser")
-    page_text = soup.get_text(" ").lower().replace(" ", "")
-
-    if len(page_text) < 200:
-        return "LOADING"
-
+    text = soup.get_text(" ").lower().replace(" ", "")
     result = {}
 
     for gram in GRAM_LIST:
-        gram_key = gram.replace(" ", "").lower()
-
-        if gram_key not in page_text:
+        key = gram.replace(" ", "").lower()
+        if key not in text:
             result[gram] = True
-            continue
-
-        if "belumtersedia" in page_text:
+        elif "belumtersedia" in text:
             result[gram] = True
         else:
             result[gram] = False
@@ -150,96 +95,30 @@ def check_stock(html):
     return result
 
 # =====================
-# MAIN
+# MAIN (1x RUN - STREAMLIT FRIENDLY)
 # =====================
-def main():
+def run_once():
     last = load_state()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=HEADLESS,
-            args=[
-                "--no-sandbox",
-                "--disable-dev-shm-usage"
-            ]
-        )
+    current = check_stock()
 
-        context = browser.new_context()
-        page = context.new_page()
+    for gram, habis in current.items():
+        last_status = last.get(gram)
 
-        send_telegram(
-            f"🟢 <b>ANTAM MONITOR STARTED</b>\n"
-            f"MODE: <b>{MODE}</b>"
-        )
+        log_csv(now, gram, habis)
 
-        while True:
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            screenshot = f"{SCREENSHOT_DIR}/antam_{ts}.png"
+        if MODE == "VALIDASI" and habis:
+            send_telegram(f"🧪 VALIDASI\n{gram}\nBELUM TERSEDIA\n{now}")
 
-            try:
-                ok = safe_load_page(page)
-
-                if not ok:
-                    page.screenshot(path=screenshot, full_page=True)
-                    send_telegram(
-                        "🚨 <b>GAGAL LOAD HALAMAN ANTAM</b>",
-                        screenshot
-                    )
-                    time.sleep(INTERVAL)
-                    continue
-
-                html = page.content()
-                page.screenshot(path=screenshot, full_page=True)
-
-                current = check_stock(html)
-
-                if current == "LOADING":
-                    print("⏳ Halaman belum siap")
-                    time.sleep(INTERVAL)
-                    continue
-
-                for gram, habis in current.items():
-                    last_status = last.get(gram)
-
-                    log_csv(now, gram, habis)
-
-                    if MODE == "VALIDASI" and habis:
-                        send_telegram(
-                            f"🧪 <b>VALIDASI SCRAPER</b>\n"
-                            f"{gram}\nBELUM TERSEDIA\n{now}",
-                            screenshot
-                        )
-
-                    elif MODE == "PRODUKSI":
-                        if not habis and last_status is not False:
-                            send_telegram(
-                                f"🟢 <b>STOK ANTAM TERSEDIA</b>\n"
-                                f"{gram}\nPulo Gadung\n{now}",
-                                screenshot
-                            )
-
-                last = current
-                save_state(current)
-
-                print(f"✔ [{MODE}] UPDATE {now}")
-
-            except Exception as e:
-                fatal = f"{SCREENSHOT_DIR}/fatal_{ts}.png"
-                try:
-                    page.screenshot(path=fatal, full_page=True)
-                except:
-                    pass
-
+        elif MODE == "PRODUKSI":
+            if not habis and last_status is not False:
                 send_telegram(
-                    f"❌ <b>FATAL ERROR</b>\n{str(e)}",
-                    fatal
+                    f"🟢 <b>STOK ANTAM TERSEDIA</b>\n{gram}\n{now}"
                 )
 
-            time.sleep(INTERVAL)
+    save_state(current)
+    print("✔ UPDATE", now)
 
-# =====================
-# RUN
-# =====================
 if __name__ == "__main__":
-    main()
+    run_once()
