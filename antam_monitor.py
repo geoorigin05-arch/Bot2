@@ -160,8 +160,8 @@ for gram, habis in current.items():
     last_status = last.get(gram)
     log_csv(now, gram, habis)
 
-    # 🔔 ANTI-SPAM LOGIC
     if MODE == "PRODUKSI":
+        # Kirim notif hanya jika stok tersedia baru
         if not habis and last_status is not False:
             send_telegram(
                 f"🟢 <b>STOK ANTAM TERSEDIA</b>\n"
@@ -169,6 +169,17 @@ for gram, habis in current.items():
                 f"{now}"
             )
             notif_sent = True
+
+    elif MODE == "VALIDASI":
+        # Kirim notif untuk tiap gram, tanpa cek status sebelumnya
+        send_telegram(
+            f"🧪 <b>VALIDASI SCRAPER</b>\n"
+            f"{gram}\n"
+            f"{'HABIS' if habis else 'TERSEDIA'}\n"
+            f"{now}"
+        )
+        notif_sent = True
+
 
 save_state(current)
 
@@ -207,3 +218,4 @@ if os.path.exists(CSV_LOG):
 # =====================
 if st.button("🔄 Refresh Manual"):
     st.experimental_rerun()
+
