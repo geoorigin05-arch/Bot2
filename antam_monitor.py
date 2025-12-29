@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+import atexit
 
 # =====================
 # CONFIG
@@ -17,7 +18,7 @@ URL = "https://www.logammulia.com/id/purchase/gold"
 GRAM_LIST = ["0.5 gr", "1 gr", "2 gr", "3 gr", "5 gr", "10 gr"]
 
 MODE = "PRODUKSI"   # VALIDASI | PRODUKSI
-AUTO_REFRESH_MIN = 5   # ⏱️ AUTO REFRESH (MENIT)
+AUTO_REFRESH_MIN = 1   # ⏱️ AUTO REFRESH (MENIT)
 
 STATE_FILE = "last_status.json"
 CSV_LOG = "stock_log.csv"
@@ -52,6 +53,16 @@ def send_telegram(msg):
         )
     except Exception as e:
         st.error(f"Telegram error: {e}")
+
+# =====================
+# NOTIF END APP
+# =====================
+def notify_app_end():
+    send_telegram(
+        "🔴 <b>ANTAM MONITOR STOPPED</b>\n"
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+atexit.register(notify_app_end)
 
 # =====================
 # STATE
@@ -104,8 +115,28 @@ st_autorefresh(interval=AUTO_REFRESH_MIN * 60 * 1000, key="auto_refresh")
 # =====================
 st.set_page_config(page_title="ANTAM Monitor", layout="wide")
 st.title("🟡 ANTAM Gold Stock Monitor")
-
 st.caption(f"⏱️ Auto refresh tiap {AUTO_REFRESH_MIN} menit")
+
+# =====================
+# START NOTIF (ANTI-SPAM)
+# =====================
+if "app_started" not in st.session_state:
+    st.session_state.app_started = True
+    send_telegram(
+        "🟢 <b>ANTAM MONITOR STARTED</b>\n"
+        f"MODE: <b>{MODE}</b>\n"
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+    st.session_state.last_ping = datetime.now()
+else:
+    # DETEKSI BANGUN DARI SLEEP > 30 MENIT
+    delta = (datetime.now() - st.session_state.last_ping).seconds
+    if delta > 1800:
+        send_telegram(
+            "⚡ <b>ANTAM MONITOR WAKE UP</b>\n"
+            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+    st.session_state.last_ping = datetime.now()
 
 # =====================
 # MAIN CHECK
@@ -120,10 +151,8 @@ except Exception as e:
     st.stop()
 
 notif_sent = False
-
 for gram, habis in current.items():
     last_status = last.get(gram)
-
     log_csv(now, gram, habis)
 
     # 🔔 ANTI-SPAM LOGIC
@@ -152,19 +181,35 @@ if notif_sent:
     st.success("🔔 Notifikasi Telegram dikirim")
 
 # =====================
-# GRAFIK CSV
+# GRAFIK CSV (ANTI-CRASH)
 # =====================
 if os.path.exists(CSV_LOG):
     st.subheader("📊 Riwayat Ketersediaan (1 = HABIS)")
     df = pd.read_csv(CSV_LOG)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    pivot = df.pivot_table(
-        index="timestamp",
-        columns="gram",
-        values="status",
-        aggfunc="last"
-    )
-    st.line_chart(pivot)
+
+    st.caption(f"Kolom CSV terdeteksi: {list(df.columns)}")
+
+    if "status" not in df.columns:
+        if "status_num" in df.columns:
+            df["status"] = df["status_num"]
+        else:
+            st.warning("CSV tidak punya kolom status/status_num")
+            st.stop()
+
+    if "timestamp" not in df.columns or "gram" not in df.columns:
+        st.warning("CSV tidak sesuai format grafik")
+        st.stop()
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df = df.dropna(subset=["timestamp"])
+    if not df.empty:
+        pivot = df.pivot_table(
+            index="timestamp",
+            columns="gram",
+            values="status",
+            aggfunc="last"
+        )
+        st.line_chart(pivot)
 
 # =====================
 # MANUAL BUTTON
