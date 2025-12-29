@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo  # Python 3.9+
 # =====================
 URL = "https://www.logammulia.com/id/purchase/gold"
 GRAM_LIST = ["0.5 gr", "1 gr", "2 gr", "3 gr", "5 gr", "10 gr"]
-MODE = "VALIDASI"  # VALIDASI | PRODUKSI
+MODE = "PRODUKSI"  # VALIDASI | PRODUKSI
 AUTO_REFRESH_MIN = 1
 STATE_FILE = "last_status.json"
 CSV_LOG = "stock_log.csv"
@@ -207,4 +207,5 @@ if os.path.exists(CSV_LOG):
 # =====================
 if st.button("🔄 Refresh Manual"):
     st.experimental_rerun()
+
 
