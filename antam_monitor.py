@@ -164,15 +164,16 @@ for gram, habis in current.items():
     last_status = last.get(gram)
     log_csv(now, gram, habis)
 
+    # Path screenshot untuk PRODUKSI & VALIDASI
     screenshot_path = os.path.join(
-        SCREENSHOT_DIR, 
+        SCREENSHOT_DIR,
         f"{MODE}_{gram}_{now.replace(':','_')}.html"
     )
     with open(screenshot_path, "w", encoding="utf-8") as f:
         f.write(html_content)
 
-    # PRODUKSI → notif hanya jika stok tersedia baru
     if MODE == "PRODUKSI":
+        # Kirim notif hanya jika stok tersedia baru
         if not habis and last_status is not False:
             send_telegram(
                 f"🟢 <b>STOK ANTAM TERSEDIA</b>\n{gram}\n{now}",
@@ -180,19 +181,14 @@ for gram, habis in current.items():
             )
             notif_sent = True
 
-    # VALIDASI → kirim notif selalu, untuk sanity testing
     elif MODE == "VALIDASI":
+        # Validasi: ambil screenshot & kirim notif selalu
         send_telegram(
             f"🧪 <b>VALIDASI SCRAPER</b>\n{gram}\n{'HABIS' if habis else 'TERSEDIA'}\n{now}",
             photo=screenshot_path
         )
         notif_sent = True
 
-    # VALIDASI → ambil screenshot tiap cek, untuk testing scraper, tapi tidak notif stok
-    elif MODE == "VALIDASI":
-        screenshot_path = os.path.join(SCREENSHOT_DIR, f"VALIDASI_{gram}_{now.replace(':','_')}.html")
-        with open(screenshot_path, "w", encoding="utf-8") as f:
-            f.write(html_content)
 
 save_state(current)
 
@@ -231,3 +227,4 @@ if os.path.exists(CSV_LOG):
 # =====================
 if st.button("🔄 Refresh Manual"):
     st.experimental_rerun()
+
