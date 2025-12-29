@@ -60,7 +60,7 @@ def send_telegram(msg):
 def notify_app_end():
     send_telegram(
         "🔴 <b>ANTAM MONITOR STOPPED</b>\n"
-        f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        f"{datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y-%m-%d %H:%M:%S")}"
     )
 atexit.register(notify_app_end)
 
@@ -130,7 +130,7 @@ if not st.session_state.notif_sent_start:
     send_telegram(
         "🟢 <b>ANTAM MONITOR STARTED</b>\n"
         f"MODE: <b>{MODE}</b>\n"
-        f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        f"{datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y-%m-%d %H:%M:%S")}"
     )
     st.session_state.notif_sent_start = True
 
@@ -139,7 +139,7 @@ delta = (datetime.now() - st.session_state.last_ping).seconds
 if delta > 1800:
     send_telegram(
         "⚡ <b>ANTAM MONITOR WAKE UP</b>\n"
-        f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        f"{datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y-%m-%d %H:%M:%S")}"
     )
 
 st.session_state.last_ping = datetime.now()
@@ -148,7 +148,8 @@ st.session_state.last_ping = datetime.now()
 # MAIN CHECK
 # =====================
 last = load_state()
-now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+now = datetime.now(ZoneInfo("Asia/Jakarta")).strftime("%Y-%m-%d %H:%M:%S")
+
 
 try:
     current = check_stock()
@@ -222,4 +223,5 @@ if os.path.exists(CSV_LOG):
 # =====================
 if st.button("🔄 Refresh Manual"):
     st.experimental_rerun()
+
 
