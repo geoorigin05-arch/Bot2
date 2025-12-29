@@ -1,12 +1,14 @@
+import streamlit as st
 import requests
 import json
 import os
 import csv
-import time
+import pandas as pd
 
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from datetime import datetime
+from streamlit_autorefresh import st_autorefresh
 
 # =====================
 # CONFIG
@@ -15,7 +17,7 @@ URL = "https://www.logammulia.com/id/purchase/gold"
 GRAM_LIST = ["0.5 gr", "1 gr", "2 gr", "3 gr", "5 gr", "10 gr"]
 
 MODE = "PRODUKSI"   # VALIDASI | PRODUKSI
-INTERVAL = 60
+AUTO_REFRESH_MIN = 5   # ⏱️ AUTO REFRESH (MENIT)
 
 STATE_FILE = "last_status.json"
 CSV_LOG = "stock_log.csv"
@@ -35,6 +37,8 @@ CHAT_ID = os.getenv("CHAT_ID")
 # TELEGRAM
 # =====================
 def send_telegram(msg):
+    if not BOT_TOKEN or not CHAT_ID:
+        return
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
         requests.post(
@@ -47,7 +51,7 @@ def send_telegram(msg):
             timeout=15
         )
     except Exception as e:
-        print("Telegram error:", e)
+        st.error(f"Telegram error: {e}")
 
 # =====================
 # STATE
@@ -71,7 +75,7 @@ def log_csv(ts, gram, habis):
         w = csv.writer(f)
         if not exists:
             w.writerow(["timestamp", "gram", "status"])
-        w.writerow([ts, gram, "HABIS" if habis else "TERSEDIA"])
+        w.writerow([ts, gram, 1 if habis else 0])
 
 # =====================
 # CHECK STOCK
@@ -79,46 +83,91 @@ def log_csv(ts, gram, habis):
 def check_stock():
     r = requests.get(URL, headers=HEADERS, timeout=30)
     soup = BeautifulSoup(r.text, "html.parser")
-
     text = soup.get_text(" ").lower().replace(" ", "")
-    result = {}
 
+    result = {}
     for gram in GRAM_LIST:
         key = gram.replace(" ", "").lower()
-        if key not in text:
-            result[gram] = True
-        elif "belumtersedia" in text:
+        if key not in text or "belumtersedia" in text:
             result[gram] = True
         else:
             result[gram] = False
-
     return result
 
 # =====================
-# MAIN (1x RUN - STREAMLIT FRIENDLY)
+# AUTO REFRESH
 # =====================
-def run_once():
-    last = load_state()
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+st_autorefresh(interval=AUTO_REFRESH_MIN * 60 * 1000, key="auto_refresh")
 
+# =====================
+# UI
+# =====================
+st.set_page_config(page_title="ANTAM Monitor", layout="wide")
+st.title("🟡 ANTAM Gold Stock Monitor")
+
+st.caption(f"⏱️ Auto refresh tiap {AUTO_REFRESH_MIN} menit")
+
+# =====================
+# MAIN CHECK
+# =====================
+last = load_state()
+now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+try:
     current = check_stock()
+except Exception as e:
+    st.error(f"Gagal ambil data: {e}")
+    st.stop()
 
-    for gram, habis in current.items():
-        last_status = last.get(gram)
+notif_sent = False
 
-        log_csv(now, gram, habis)
+for gram, habis in current.items():
+    last_status = last.get(gram)
 
-        if MODE == "VALIDASI" and habis:
-            send_telegram(f"🧪 VALIDASI\n{gram}\nBELUM TERSEDIA\n{now}")
+    log_csv(now, gram, habis)
 
-        elif MODE == "PRODUKSI":
-            if not habis and last_status is not False:
-                send_telegram(
-                    f"🟢 <b>STOK ANTAM TERSEDIA</b>\n{gram}\n{now}"
-                )
+    # 🔔 ANTI-SPAM LOGIC
+    if MODE == "PRODUKSI":
+        if not habis and last_status is not False:
+            send_telegram(
+                f"🟢 <b>STOK ANTAM TERSEDIA</b>\n"
+                f"{gram}\n"
+                f"{now}"
+            )
+            notif_sent = True
 
-    save_state(current)
-    print("✔ UPDATE", now)
+save_state(current)
 
-if __name__ == "__main__":
-    run_once()
+# =====================
+# STATUS TABLE
+# =====================
+st.subheader("📦 Status Terkini")
+status_df = pd.DataFrame([
+    {"Gram": g, "Status": "HABIS" if current[g] else "TERSEDIA"}
+    for g in GRAM_LIST
+])
+st.dataframe(status_df, use_container_width=True)
+
+if notif_sent:
+    st.success("🔔 Notifikasi Telegram dikirim")
+
+# =====================
+# GRAFIK CSV
+# =====================
+if os.path.exists(CSV_LOG):
+    st.subheader("📊 Riwayat Ketersediaan (1 = HABIS)")
+    df = pd.read_csv(CSV_LOG)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    pivot = df.pivot_table(
+        index="timestamp",
+        columns="gram",
+        values="status",
+        aggfunc="last"
+    )
+    st.line_chart(pivot)
+
+# =====================
+# MANUAL BUTTON
+# =====================
+if st.button("🔄 Refresh Manual"):
+    st.experimental_rerun()
