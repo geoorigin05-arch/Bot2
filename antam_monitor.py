@@ -9,6 +9,8 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+from zoneinfo import ZoneInfo  # Python 3.9+
+
 import atexit
 
 # =====================
@@ -223,5 +225,6 @@ if os.path.exists(CSV_LOG):
 # =====================
 if st.button("🔄 Refresh Manual"):
     st.experimental_rerun()
+
 
 
