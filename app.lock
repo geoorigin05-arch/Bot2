@@ -1,0 +1,12 @@
+LOCK_FILE = "app.lock"
+
+def send_start_notif_once():
+    if not os.path.exists(LOCK_FILE):
+        send_telegram(
+            f"🟢 <b>ANTAM MONITOR STARTED</b>\nMODE: <b>{MODE}</b>\n"
+            f"{datetime.now(ZoneInfo('Asia/Jakarta')).strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        with open(LOCK_FILE, "w") as f:
+            f.write("running")
+
+send_start_notif_once()
